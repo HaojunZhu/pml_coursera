@@ -1,0 +1,145 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Haojun Zhu"
+date: "August 19, 2015"
+output: html_document
+---
+
+## Introduction 
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+## Data Processing
+
+### Data Input
+
+First, load the necessary packages. 
+```{r, message = FALSE, warning = FALSE}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(corrplot)
+library(randomForest)
+```
+
+Download the training data and test data for this project. 
+
+```{r}
+setwd('~/Coursera/Practical Machine Learning/project')
+url_train <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+url_test <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+file_train <- "~/pml-training.csv"
+file_test <- "~/pml-testing.csv"
+if (!file.exists(file_train)){
+  download.file(url_train, destfile = file_train)
+}
+if (!file.exists(file_test)){
+  download.file(url_test, destfile = file_test)
+}
+```
+
+Read the raw data sets into R.
+```{r}
+train_raw <- read.csv(file_train)
+test_raw <- read.csv(file_test)
+```
+
+
+### Data Cleaning 
+
+First, columns that contain missing values are excluded. 
+
+```{r}
+train_raw <- train_raw[, colSums(is.na(train_raw)) == 0]
+test_raw <- test_raw[, colSums(is.na(test_raw)) == 0]
+```
+
+Since there are several columns, such as timesteps, that do not contribute to the prediction, we remove them from both the training and test sets. Also, columns that consistute of non-numeric values are excluded as well. 
+
+```{r}
+# remove columns whose names contain X, timestamp, or window
+trainRemove <- grepl("^X|timestamp|window", names(train_raw))
+train_raw <- train_raw[, !trainRemove]
+
+# only keep columns that have numeric values 
+train_clean <- train_raw[, sapply(train_raw, is.numeric)]
+
+train_clean$classe <- train_raw$classe
+
+
+# remove columns whose names contain X, timestamp, or window
+testRemove <- grepl("^X|timestamp|window", names(test_raw))
+test_raw <- test_raw[, !testRemove]
+
+# only keep columns that have numeric values
+test_clean <- test_raw[, sapply(test_raw, is.numeric)]
+
+test_clean$classe <- test_raw$classe
+```
+
+The remaining columns are therefore. 
+```{r}
+colnames(train_clean)
+```
+
+### Data Slicing
+
+For the cleaned training set, we split 60% into sub-training set, and 40% into sub-test set. 
+
+```{r}
+inTrain <- createDataPartition(train_clean$classe, p = 0.6, list = FALSE)
+training <- train_clean[inTrain, ]
+testing <- train_clean[-inTrain, ]
+```
+
+## Machine Learning Algorithm
+
+We train the data with random forest algorithm. 
+
+First, we apply 3-fold cross validation and preprocessing on training set. 
+
+```{r}
+fit1 <- train(classe ~ ., data=training, method="rf", trControl = trainControl(method="cv", 3), preProcess=c("center", "scale"))
+fit1
+
+predict1 <- predict(fit1, testing)
+confusionMatrix(testing$classe, predict1)
+```
+
+Then, we do not preprocess the training set but only use 3-fold cross validation. 
+
+```{r}
+fit2 <- train(classe ~ ., data=training, method="rf", trControl = trainControl(method="cv", 3))
+fit2
+
+predict2 <- predict(fit2, testing)
+confusionMatrix(testing$classe, predict2)
+```
+
+From the confusion matrices, we find that preprocessing actually decreases accuracy. We predict for test data without prepocessing. 
+
+```{r}
+# remove problem_id column
+test_result <- predict(fit2, test_clean[, -53])
+test_result
+```
+
+## Submitting Results for Evaluation 
+
+Use the function provided to generate files with prediction results.
+```{r}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+if (!file.exists("./answer")) {
+  dir.create("./answer")
+}
+
+setwd("./answer")
+pml_write_files(test_result)
+```
